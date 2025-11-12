@@ -619,6 +619,8 @@ class RTCSession extends EventManager implements Owner {
 
     RTCSessionDescription offer = RTCSessionDescription(processedSDP, SdpType.offer.name);
 
+    print('[3CX PATCH] 🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧🔧');
+
 // إصلاح SDP لـ 3CX قبل التعيين
     // print('[3CX PATCH] 🔧 Fixing 3CX SDP in answer()...');
     // String fixedSdp = _fix3CXSdp(offer.sdp!);
