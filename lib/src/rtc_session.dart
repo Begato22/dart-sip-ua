@@ -449,7 +449,9 @@ class RTCSession extends EventManager implements Owner {
     bool peerOffersFullVideo = false;
 
     // In future versions, unified-plan will be used by default
-    String? sdpSemantics = 'unified-plan';
+
+    //todo POSBANK check this
+    String? sdpSemantics = 'plan-b';
     if (pcConfig['sdpSemantics'] != null) {
       sdpSemantics = pcConfig['sdpSemantics'];
     }
@@ -554,6 +556,10 @@ class RTCSession extends EventManager implements Owner {
 
     // Create a RTCPeerConnection instance.
     // TODO(cloudwebrtc): This may throw an error, should react.
+
+    //todo POSBANK check this
+    pcConfig['sdpSemantics'] = 'plan-b';
+
     await _createRTCConnection(pcConfig, rtcConstraints);
 
     MediaStream? stream;
