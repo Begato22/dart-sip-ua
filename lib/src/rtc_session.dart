@@ -620,12 +620,12 @@ class RTCSession extends EventManager implements Owner {
     RTCSessionDescription offer = RTCSessionDescription(processedSDP, SdpType.offer.name);
 
 // إصلاح SDP لـ 3CX قبل التعيين
-    print('[3CX PATCH] 🔧 Fixing 3CX SDP in answer()...');
-    String fixedSdp = _fix3CXSdp(offer.sdp!);
-    RTCSessionDescription fixedOffer = RTCSessionDescription(fixedSdp, offer.type);
+    // print('[3CX PATCH] 🔧 Fixing 3CX SDP in answer()...');
+    // String fixedSdp = _fix3CXSdp(offer.sdp!);
+    // RTCSessionDescription fixedOffer = RTCSessionDescription(fixedSdp, offer.type);
 
     try {
-      await _connection!.setRemoteDescription(fixedOffer);
+      await _connection!.setRemoteDescription(offer);
     } catch (error) {
       request.reply(488);
       _failed(Originator.system, null, null, null, 488, DartSIP_C.CausesType.WEBRTC_ERROR, 'SetRemoteDescription(offer) failed');
