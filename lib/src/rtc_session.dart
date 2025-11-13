@@ -2859,51 +2859,76 @@ class RTCSession extends EventManager implements Owner {
       return sdpInput;
     }
 
-    // 1. تحليل الـ SDP
-    Map<String, dynamic> sdp = sdp_transform.parse(sdpInput);
+    logger.d('_sdpOfferToWebRTC() | Applying Final SSRC and WebRTC fixes...');
 
-    final List<Map<String, dynamic>> mediaList = <Map<String, dynamic>>[];
+    try {
+      // 1. تحليل الـ SDP
+      Map<String, dynamic> sdp = sdp_transform.parse(sdpInput);
 
-    for (dynamic media in sdp['media']) {
-      // 2. إزالة أقسام الـ 'text'
-      if (media['type'] == 'text') {
-        continue;
-      }
+      final List<Map<String, dynamic>> mediaList = <Map<String, dynamic>>[];
 
-      // --- تطبيق تصحيحات WebRTC ---
+      for (dynamic media in sdp['media']) {
+        // 2. إزالة أقسام الـ 'text'
+        if (media['type'] == 'text') {
+          continue;
+        }
 
-      // 3. تصحيح البروتوكول: SAVP -> SAVPF
-      if (media['protocol'] == 'RTP/SAVP') {
-        media['protocol'] = 'RTP/SAVPF';
-        logger.d('SDP Offer Fix: Protocol changed to RTP/SAVPF for ${media['type']}');
-      }
+        // --- تطبيق تصحيحات WebRTC ---
 
-      // 4. إضافة سمات RTCP-FB الضرورية (إذا كانت مفقودة)
-      if (media['type'] == 'audio' || media['type'] == 'video') {
+        // 3. تصحيح البروتوكول: SAVP -> SAVPF
+        if (media['protocol'] == 'RTP/SAVP') {
+          media['protocol'] = 'RTP/SAVPF';
+        }
+
+        // 4. التأكد من وجود مصفوفة السمات
         if (media['attributes'] == null) {
           media['attributes'] = [];
         }
 
-        var payloadTypes = media['payloads']?.split(' ') ?? [];
+        // 5. إضافة سمات RTCP-FB الضرورية (إذا كانت مفقودة)
+        if (media['type'] == 'audio' || media['type'] == 'video') {
+          var payloadTypes = media['payloads']?.split(' ') ?? [];
 
-        for (var pt in payloadTypes) {
-          var ptHasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
+          for (var pt in payloadTypes) {
+            var ptHasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
 
-          if (!ptHasRtcpFb) {
-            // إضافة NACK و transport-cc
-            media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
-            media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+            if (!ptHasRtcpFb) {
+              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
+              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+            }
           }
         }
+
+        // 6. *التعديل الحاسم*: إضافة SSRC و CNAME إذا كانت مفقودة
+        // هذا ضروري لبعض إصدارات WebRTC التي تحتاج إلى تحديد مصدر المزامنة
+        var hasSsrc = media['attributes'].any((attr) => attr['key'] == 'ssrc');
+        var hasCname = media['attributes'].any((attr) => attr['key'] == 'cname');
+
+        if (!hasSsrc || !hasCname) {
+          // توليد رقم SSRC عشوائي
+          int ssrc = 123456789;
+          String cname = 'sip-ua-${media['type']}';
+
+          // إضافة سمات SSRC و CNAME
+          media['attributes'].add({'key': 'ssrc', 'value': '$ssrc cname:$cname'});
+          media['attributes'].add({'key': 'ssrc', 'value': '$ssrc msid:dart-sip-ua-${media['type']}'});
+          media['attributes'].add({'key': 'ssrc', 'value': '$ssrc mslabel:dart-sip-ua-stream'});
+          media['attributes'].add({'key': 'ssrc', 'value': '$ssrc label:dart-sip-ua-track-${media['type']}'});
+
+          logger.d('SDP Offer Fix: Added SSRC and CNAME attributes to ${media['type']}');
+        }
+
+        mediaList.add(media);
       }
 
-      mediaList.add(media);
+      sdp['media'] = mediaList;
+
+      // 7. إعادة بناء الـ SDP المعدل
+      return sdp_transform.write(sdp, {});
+    } catch (e) {
+      logger.e('FATAL SDP FIX ERROR: $e');
+      return sdpInput; // إرجاع الـ SDP الأصلي في حالة فشل التحويل
     }
-
-    sdp['media'] = mediaList;
-
-    // 5. إعادة بناء الـ SDP المعدل (باستخدام {} لتجنب خطأ 2 positional arguments)
-    return sdp_transform.write(sdp, {});
   }
 
   void _setLocalMediaStatus() {
