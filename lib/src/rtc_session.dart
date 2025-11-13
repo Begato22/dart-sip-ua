@@ -2859,18 +2859,51 @@ class RTCSession extends EventManager implements Owner {
       return sdpInput;
     }
 
+    // 1. تحليل الـ SDP
     Map<String, dynamic> sdp = sdp_transform.parse(sdpInput);
 
     final List<Map<String, dynamic>> mediaList = <Map<String, dynamic>>[];
 
-    for (dynamic element in sdp['media']) {
-      if (element['type'] != 'text') {
-        mediaList.add(element);
+    for (dynamic media in sdp['media']) {
+      // 2. إزالة أقسام الـ 'text'
+      if (media['type'] == 'text') {
+        continue;
       }
+
+      // --- تطبيق تصحيحات WebRTC ---
+
+      // 3. تصحيح البروتوكول: SAVP -> SAVPF
+      if (media['protocol'] == 'RTP/SAVP') {
+        media['protocol'] = 'RTP/SAVPF';
+        logger.d('SDP Offer Fix: Protocol changed to RTP/SAVPF for ${media['type']}');
+      }
+
+      // 4. إضافة سمات RTCP-FB الضرورية (إذا كانت مفقودة)
+      if (media['type'] == 'audio' || media['type'] == 'video') {
+        if (media['attributes'] == null) {
+          media['attributes'] = [];
+        }
+
+        var payloadTypes = media['payloads']?.split(' ') ?? [];
+
+        for (var pt in payloadTypes) {
+          var ptHasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
+
+          if (!ptHasRtcpFb) {
+            // إضافة NACK و transport-cc
+            media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
+            media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+          }
+        }
+      }
+
+      mediaList.add(media);
     }
+
     sdp['media'] = mediaList;
 
-    return sdp_transform.write(sdp, null);
+    // 5. إعادة بناء الـ SDP المعدل (باستخدام {} لتجنب خطأ 2 positional arguments)
+    return sdp_transform.write(sdp, {});
   }
 
   void _setLocalMediaStatus() {
