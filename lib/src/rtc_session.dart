@@ -3143,10 +3143,10 @@ class RTCSession extends EventManager implements Owner {
 
     String fixedSdp = sdp;
 
-    RegExp secureProtocolRegex = RegExp(r'm=(audio|video) (\d+) (UDP/TLS/RTP/SAVP|TCP/TLS/RTP/SAVP|RTP/SAVP)', multiLine: true);
+    RegExp secureProtocolRegex = RegExp(r'(m=(audio|video) \d+) (.*?)(RTP/SAVP)', multiLine: true);
 
     if (secureProtocolRegex.hasMatch(fixedSdp)) {
-      fixedSdp = fixedSdp.replaceAll(secureProtocolRegex, r'm=$1 $2 RTP/AVP');
+      fixedSdp = fixedSdp.replaceAll(secureProtocolRegex, r'$1 RTP/AVP');
       print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
     }
 
