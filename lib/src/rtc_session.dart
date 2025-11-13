@@ -3141,32 +3141,39 @@ class RTCSession extends EventManager implements Owner {
   String _fix3CXSdp(String sdp) {
     print('[3CX PATCH] 🔧 Original SDP: $sdp');
 
+    // تحديد ما إذا كان الـ SDP يستخدم RTP/SAVP (المشفر)
+    bool wasSAVP = sdp.contains('RTP/SAVP');
+
     // 1. إذا كان SDP يستخدم RTP/SAVP بدون DTLS، حوله إلى RTP/AVP
-    if (sdp.contains('RTP/SAVP') && !sdp.contains('a=fingerprint:')) {
+    if (wasSAVP && !sdp.contains('a=fingerprint:')) {
       sdp = sdp.replaceAll('RTP/SAVP', 'RTP/AVP');
-      print('[3CX PATCH] ✅ Changed RTP/SAVP to RTP/AVP');
+      print('[3CX PATCH] ✅ Changed RTP/SAVP to RTP/AVP (Removed SRTP requirement)');
     }
 
-    // 2. أزل أي إشارات لـ SDES إذا كانت موجودة
-    if (sdp.contains('a=crypto:') && sdp.contains('RTP/SAVP')) {
+    // 2. أزل أي إشارات لـ SDES إذا كانت موجودة (قديمة)
+    if (sdp.contains('a=crypto:')) {
       // احذف جميع خطوط crypto القديمة
       sdp = sdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
       print('[3CX PATCH] ✅ Removed old crypto lines');
     }
 
-    // 3. أضف DTLS fingerprint فقط إذا كان RTP/AVP
-    if (sdp.contains('RTP/AVP') && !sdp.contains('a=fingerprint:')) {
-      sdp = sdp.replaceFirst('a=setup:actpass', 'a=setup:actpass\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00');
-      print('[3CX PATCH] ✅ Added DTLS fingerprint for RTP/AVP');
+    // 3. (تمت إزالة النقطة 3)
+    // لا يجب إضافة Fingerprint مزيف لـ RTP/AVP!
+
+    // 4. إذا تم التحويل إلى RTP/AVP، تأكد من إزالة خطوط DTLS الخاصة بـ SETUP و Fingerprint
+    if (sdp.contains('RTP/AVP') && (sdp.contains('a=setup:') || sdp.contains('a=fingerprint:'))) {
+      sdp = sdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
+      sdp = sdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
+      print('[3CX PATCH] ✅ Removed a=setup/fingerprint since it is now RTP/AVP');
     }
 
-    // 4. تأكد من أن ICE options صحيحة
+    // 5. تأكد من أن ICE options صحيحة
     if (!sdp.contains('a=ice-options:')) {
       sdp = sdp.replaceFirst('a=ice-ufrag:', 'a=ice-options:trickle\r\na=ice-ufrag:');
       print('[3CX PATCH] ✅ Added ICE options');
     }
 
-    // 5. أزل أي إشارات لـ SRTP إذا كانت تسبب مشاكل
+    // 6. أزل أي إشارات لـ SRTP إذا كانت تسبب مشاكل
     if (sdp.contains('a=key-mgmt:') || sdp.contains('a=mikey:')) {
       sdp = sdp.replaceAll(RegExp(r'a=key-mgmt:.*\r\n'), '');
       sdp = sdp.replaceAll(RegExp(r'a=mikey:.*\r\n'), '');
