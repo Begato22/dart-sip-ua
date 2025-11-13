@@ -3143,29 +3143,23 @@ class RTCSession extends EventManager implements Owner {
 
     String fixedSdp = sdp;
 
-    RegExp secureProtocolRegex = RegExp(r'(m=(audio|video) \d+) (.*?)(RTP/SAVP)', multiLine: true);
-
-    if (secureProtocolRegex.hasMatch(fixedSdp)) {
-      fixedSdp = fixedSdp.replaceAll(secureProtocolRegex, r'$1 RTP/AVP');
-      print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
-    }
-
-    fixedSdp = fixedSdp.replaceAll('RTP/SAVP', 'RTP/AVP');
+    // 1. التحويل إلى RTP/AVP (إصلاح مشكلة DTLS/SAVP)
+    // نستخدم الاستبدال النصي المباشر بدلاً من RegEx المعقد لتجنب خطأ $1 $2.
     fixedSdp = fixedSdp.replaceAll('UDP/TLS/RTP/SAVP', 'RTP/AVP');
     fixedSdp = fixedSdp.replaceAll('TCP/TLS/RTP/SAVP', 'RTP/AVP');
+    fixedSdp = fixedSdp.replaceAll('RTP/SAVP', 'RTP/AVP');
+    print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
 
+    // 2. إزالة جميع إشارات الأمان/التشفير المتبقية (ضروري لـ RTP/AVP)
+    // تم تجميع هذه الاستبدالات في خطوة واحدة لضمان إزالة جميع الإشارات الأمنية.
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
-
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
-
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
-
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=key-mgmt:.*\r\n'), '');
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=mikey:.*\r\n'), '');
     print('[3CX PATCH] ✅ Removed all DTLS/SRTP signaling');
 
+    // 3. التأكد من ICE options (ممارسة جيدة)
     if (!fixedSdp.contains('a=ice-options:')) {
       fixedSdp = fixedSdp.replaceFirst('a=ice-ufrag:', 'a=ice-options:trickle\r\na=ice-ufrag:');
       print('[3CX PATCH] ✅ Added ICE options');
