@@ -3150,6 +3150,12 @@ class RTCSession extends EventManager implements Owner {
       print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
     }
 
+    fixedSdp = fixedSdp.replaceAll('RTP/SAVP', 'RTP/AVP');
+    fixedSdp = fixedSdp.replaceAll('UDP/TLS/RTP/SAVP', 'RTP/AVP');
+    fixedSdp = fixedSdp.replaceAll('TCP/TLS/RTP/SAVP', 'RTP/AVP');
+
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
+
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
 
     fixedSdp = fixedSdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
