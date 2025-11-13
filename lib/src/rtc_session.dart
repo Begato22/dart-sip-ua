@@ -3141,46 +3141,46 @@ class RTCSession extends EventManager implements Owner {
   String _fix3CXSdp(String sdp) {
     print('[3CX PATCH] 🔧 Original SDP: $sdp');
 
-    // تحديد ما إذا كان الـ SDP يستخدم RTP/SAVP (المشفر)
-    bool wasSAVP = sdp.contains('RTP/SAVP');
+    // 1. الإصلاح الحاسم: استبدل أي بروتوكول آمن (SAVP/TLS) بالبروتوكول غير الآمن (AVP)
+    // هذا يزيل الحاجة إلى بصمة DTLS.
+    // نبدأ بتغيير جزء البروتوكول في m-line.
 
-    // 1. إذا كان SDP يستخدم RTP/SAVP بدون DTLS، حوله إلى RTP/AVP
-    if (wasSAVP && !sdp.contains('a=fingerprint:')) {
-      sdp = sdp.replaceAll('RTP/SAVP', 'RTP/AVP');
-      print('[3CX PATCH] ✅ Changed RTP/SAVP to RTP/AVP (Removed SRTP requirement)');
+    String fixedSdp = sdp;
+
+    // استبدال البروتوكولات المعقدة التي تتضمن TLS
+    // مثال: m=audio XXXXX UDP/TLS/RTP/SAVP  --> m=audio XXXXX RTP/AVP
+    RegExp secureProtocolRegex = RegExp(r'm=(audio|video) (\d+) (UDP/TLS/RTP/SAVP|TCP/TLS/RTP/SAVP|RTP/SAVP)', multiLine: true);
+
+    if (secureProtocolRegex.hasMatch(fixedSdp)) {
+      // نستخدم String.replaceAll لضمان استبدال جميع حالات ميديا (audio, video)
+      fixedSdp = fixedSdp.replaceAll(secureProtocolRegex, r'm=$1 $2 RTP/AVP');
+      print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
     }
 
-    // 2. أزل أي إشارات لـ SDES إذا كانت موجودة (قديمة)
-    if (sdp.contains('a=crypto:')) {
-      // احذف جميع خطوط crypto القديمة
-      sdp = sdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
-      print('[3CX PATCH] ✅ Removed old crypto lines');
-    }
+    // 2. إزالة جميع إشارات DTLS/SRTP المتبقية
+    // يجب إزالة هذه الأسطر لأننا الآن نستخدم RTP/AVP (غير مشفر)
 
-    // 3. (تمت إزالة النقطة 3)
-    // لا يجب إضافة Fingerprint مزيف لـ RTP/AVP!
+    // إزالة a=setup (الخاص بـ DTLS)
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
 
-    // 4. إذا تم التحويل إلى RTP/AVP، تأكد من إزالة خطوط DTLS الخاصة بـ SETUP و Fingerprint
-    if (sdp.contains('RTP/AVP') && (sdp.contains('a=setup:') || sdp.contains('a=fingerprint:'))) {
-      sdp = sdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
-      sdp = sdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
-      print('[3CX PATCH] ✅ Removed a=setup/fingerprint since it is now RTP/AVP');
-    }
+    // إزالة a=fingerprint (الخاص بـ DTLS)
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
 
-    // 5. تأكد من أن ICE options صحيحة
-    if (!sdp.contains('a=ice-options:')) {
-      sdp = sdp.replaceFirst('a=ice-ufrag:', 'a=ice-options:trickle\r\na=ice-ufrag:');
+    // إزالة a=crypto (الخاص بـ SDES)
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
+
+    // إزالة a=key-mgmt و a=mikey (إشارات قديمة لـ SRTP)
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=key-mgmt:.*\r\n'), '');
+    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=mikey:.*\r\n'), '');
+    print('[3CX PATCH] ✅ Removed all DTLS/SRTP signaling');
+
+    // 3. تأكد من أن ICE options صحيحة (مهم للاتصال)
+    if (!fixedSdp.contains('a=ice-options:')) {
+      fixedSdp = fixedSdp.replaceFirst('a=ice-ufrag:', 'a=ice-options:trickle\r\na=ice-ufrag:');
       print('[3CX PATCH] ✅ Added ICE options');
     }
 
-    // 6. أزل أي إشارات لـ SRTP إذا كانت تسبب مشاكل
-    if (sdp.contains('a=key-mgmt:') || sdp.contains('a=mikey:')) {
-      sdp = sdp.replaceAll(RegExp(r'a=key-mgmt:.*\r\n'), '');
-      sdp = sdp.replaceAll(RegExp(r'a=mikey:.*\r\n'), '');
-      print('[3CX PATCH] ✅ Removed problematic key management');
-    }
-
-    print('[3CX PATCH] 🔧 Fixed SDP: $sdp');
-    return sdp;
+    print('[3CX PATCH] 🔧 Fixed SDP: $fixedSdp');
+    return fixedSdp;
   }
 }
