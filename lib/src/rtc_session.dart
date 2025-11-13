@@ -3138,66 +3138,93 @@ class RTCSession extends EventManager implements Owner {
     }
   }
 
-// قم باستبدال تعريف الدالة بالكامل بهذا الكود
+// استبدل تعريف الدالة بالكامل بهذا الكود
   String _fix3CXSdp(String sdp) {
-    logger.d('_fix3CXSdp() | Applying WebRTC compatibility fixes...');
+    logger.d('_fix3CXSdp() | Applying Codec Filtering and Compatibility fixes...');
     try {
       // 1. تحليل الـ SDP
       var session = sdp_transform.parse(sdp);
 
-      // 2. تصفح جميع أوصاف الوسائط (Media Descriptions)
-      for (var media in session['media']) {
-        // 3. تصحيح البروتوكول لجميع الأقسام
-        if (media['protocol'] == 'RTP/SAVP') {
-          media['protocol'] = 'RTP/SAVPF';
-          logger.d('Protocol fixed: RTP/SAVP changed to RTP/SAVPF for ${media['type']}');
-        }
+      // قائمة الترميزات المفضلة التي يدعمها WebRTC (Payload Types المشهورة)
+      // 111: Opus, 0: PCMU (G.711u), 8: PCMA (G.711a)
+      const Map<String, int> preferredCodecs = {
+        'opus': 111,
+        'pcmu': 0,
+        'pcma': 8,
+      };
 
-        // 4. معالجة قسم الصوت (Audio)
+      for (var media in session['media']) {
         if (media['type'] == 'audio') {
-          // التأكد من وجود مصفوفة السمات
-          if (media['attributes'] == null) {
-            media['attributes'] = [];
+          // --- 1. تصحيح البروتوكول ---
+          if (media['protocol'] == 'RTP/SAVP') {
+            media['protocol'] = 'RTP/SAVPF';
           }
 
-          // الحصول على قائمة الـ Payload Types (pt) التي يدعمها الخادم
-          var payloadTypes = media['payloads']?.split(' ') ?? [];
+          // --- 2. تصفية وإعادة ترتيب الترميزات ---
+          List<String> validPayloads = [];
+          List<Map<String, dynamic>> newAttributes = [];
 
-          // 5. إضافة سمات RTCP-FB (التغذية الراجعة) لكل ترميز صوتي
-          bool addedRtcpFb = false;
+          // قائمة الترميزات الموجودة في الـ SDP الوارد
+          var existingAttributes = media['attributes'] ?? [];
 
-          for (var pt in payloadTypes) {
-            // نتأكد أننا لا نضيف السمات إذا كانت موجودة بالفعل لهذا الـ pt (لتجنب التكرار)
-            var ptHasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
+          // الحصول على Payload Types الموجودة
+          var existingPayloads = media['payloads']?.split(' ') ?? [];
 
-            if (!ptHasRtcpFb) {
-              // إضافة سمات RTCP-FB الأكثر شيوعاً والمطلوبة لـ WebRTC (مثل NACK و transport-cc)
-              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
-              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
-              addedRtcpFb = true;
+          // إعادة ترتيب قائمة الـ Payload Types لتقديم الأفضلية (Opus) أولاً
+          List<String> reorderedPayloads = [];
+
+          // المرور على الترميزات المفضلة وتضمينها إذا كانت موجودة في الـ SDP الوارد
+          preferredCodecs.forEach((name, pt) {
+            String ptStr = pt.toString();
+            if (existingPayloads.contains(ptStr)) {
+              reorderedPayloads.add(ptStr);
+              validPayloads.add(ptStr);
+            }
+          });
+
+          // إزالة الترميزات التي لم يتم اختيارها من السمات (fmtp, rtcp-fb)
+          for (var attr in existingAttributes) {
+            if (attr['key'] == 'rtcp-fb' || attr['key'] == 'fmtp') {
+              // استخراج PT من السمة (القيمة تكون على شكل 'PT رقم_الإعداد')
+              String ptFromAttr = attr['value'].split(' ').first;
+
+              // إضافة السمة إذا كان PT موجوداً في قائمة الترميزات الصالحة
+              if (validPayloads.contains(ptFromAttr)) {
+                newAttributes.add(attr);
+              }
+            } else {
+              // الاحتفاظ بالسمات الأخرى (مثل rtcp-mux، sendrecv، إلخ)
+              newAttributes.add(attr);
             }
           }
 
-          if (addedRtcpFb) {
-            logger.d('Added RTCP-FB attributes to audio section for WebRTC compatibility.');
+          // تحديث قائمة الترميزات (m= line) بالترميزات المفضلة فقط
+          media['payloads'] = reorderedPayloads.join(' ');
+          media['attributes'] = newAttributes;
+          logger.d('Audio Codecs filtered to: ${media['payloads']}');
+
+          // --- 3. إضافة سمات RTCP-FB و rtcp-mux المفقودة ---
+          var hasRtcpMux = newAttributes.any((attr) => attr['key'] == 'rtcp-mux');
+          if (!hasRtcpMux) {
+            newAttributes.add({'key': 'rtcp-mux', 'value': null});
           }
 
-          // 6. إضافة سطر RTCP-Mux (مطلوب غالباً)
-          var hasRtcpMux = media['attributes'].any((attr) => attr['key'] == 'rtcp-mux');
-          if (!hasRtcpMux) {
-            media['attributes'].add({'key': 'rtcp-mux', 'value': null});
-            logger.d('Added rtcp-mux attribute to audio section.');
+          // التأكد من إضافة RTCP-FB للترميزات الصالحة (يجب أن تكون موجودة الآن)
+          for (var pt in validPayloads) {
+            var ptHasRtcpFb = newAttributes.any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
+            if (!ptHasRtcpFb) {
+              newAttributes.add({'key': 'rtcp-fb', 'value': '$pt nack'});
+              newAttributes.add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+            }
           }
         }
-
-        // 7. يمكنك إضافة منطق تصحيح قسم الفيديو هنا إذا كنت تستخدم الفيديو
-        // if (media['type'] == 'video') { ... }
+        // ********* يمكنك تكرار منطق التصفية هذا لقسم الفيديو (type: video) إذا كنت تستخدم الفيديو *********
       }
 
-      // 8. إعادة بناء الـ SDP المعدل (باستخدام {} لتجنب خطأ 2 positional arguments)
+      // 4. إعادة بناء الـ SDP المعدل
       return sdp_transform.write(session, {});
     } catch (e) {
-      logger.e('Failed to apply WebRTC SDP compatibility fixes: $e');
+      logger.e('FATAL SDP FIX ERROR: $e');
       // إرجاع الـ SDP الأصلي في حالة الفشل
       return sdp;
     }
