@@ -3139,39 +3139,38 @@ class RTCSession extends EventManager implements Owner {
   }
 
   String _fix3CXSdp(String sdp) {
-    print('[3CX PATCH] 🔧 Original SDP: $sdp');
+    logger.d('_fix3CXSdp()');
+    try {
+      var session = sdp_transform.parse(sdp);
 
-    String fixedSdp = sdp;
+      for (var media in session['media']) {
+        if (media['protocol'] == 'RTP/SAVP') {
+          media['protocol'] = 'RTP/SAVPF';
+          logger.d('Protocol fixed: RTP/SAVP changed to RTP/SAVPF');
+        }
 
-    RegExp secureProtocolRegex = RegExp(r'(m=(audio|video) \d+) (.*?)(RTP/SAVP)', multiLine: true);
+        if (media['attributes'] == null) {
+          media['attributes'] = [];
+        }
 
-    if (secureProtocolRegex.hasMatch(fixedSdp)) {
-      fixedSdp = fixedSdp.replaceAll(secureProtocolRegex, r'$1 RTP/AVP');
-      print('[3CX PATCH] ✅ Changed secure protocol to RTP/AVP (Disabling SRTP)');
+        var hasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb');
+
+        if (!hasRtcpFb) {
+          if (media['payloads'] != null) {
+            var payloadTypes = media['payloads'].split(' ');
+            for (var pt in payloadTypes) {
+              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
+              media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+            }
+          }
+        }
+      }
+
+      return sdp_transform.write(session, {});
+    } catch (e) {
+      logger.e('Failed to fix 3CX SDP: $e');
+
+      return sdp;
     }
-
-    fixedSdp = fixedSdp.replaceAll('RTP/SAVP', 'RTP/AVP');
-    fixedSdp = fixedSdp.replaceAll('UDP/TLS/RTP/SAVP', 'RTP/AVP');
-    fixedSdp = fixedSdp.replaceAll('TCP/TLS/RTP/SAVP', 'RTP/AVP');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=setup:.*\r\n'), '');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=fingerprint:.*\r\n'), '');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=crypto:.*\r\n'), '');
-
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=key-mgmt:.*\r\n'), '');
-    fixedSdp = fixedSdp.replaceAll(RegExp(r'a=mikey:.*\r\n'), '');
-    print('[3CX PATCH] ✅ Removed all DTLS/SRTP signaling');
-
-    if (!fixedSdp.contains('a=ice-options:')) {
-      fixedSdp = fixedSdp.replaceFirst('a=ice-ufrag:', 'a=ice-options:trickle\r\na=ice-ufrag:');
-      print('[3CX PATCH] ✅ Added ICE options');
-    }
-
-    print('[3CX PATCH] 🔧 Fixed SDP: $fixedSdp');
-    return fixedSdp;
   }
 }
