@@ -3138,38 +3138,67 @@ class RTCSession extends EventManager implements Owner {
     }
   }
 
+// قم باستبدال تعريف الدالة بالكامل بهذا الكود
   String _fix3CXSdp(String sdp) {
-    logger.d('_fix3CXSdp()');
+    logger.d('_fix3CXSdp() | Applying WebRTC compatibility fixes...');
     try {
+      // 1. تحليل الـ SDP
       var session = sdp_transform.parse(sdp);
 
+      // 2. تصفح جميع أوصاف الوسائط (Media Descriptions)
       for (var media in session['media']) {
+        // 3. تصحيح البروتوكول لجميع الأقسام
         if (media['protocol'] == 'RTP/SAVP') {
           media['protocol'] = 'RTP/SAVPF';
-          logger.d('Protocol fixed: RTP/SAVP changed to RTP/SAVPF');
+          logger.d('Protocol fixed: RTP/SAVP changed to RTP/SAVPF for ${media['type']}');
         }
 
-        if (media['attributes'] == null) {
-          media['attributes'] = [];
-        }
+        // 4. معالجة قسم الصوت (Audio)
+        if (media['type'] == 'audio') {
+          // التأكد من وجود مصفوفة السمات
+          if (media['attributes'] == null) {
+            media['attributes'] = [];
+          }
 
-        var hasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb');
+          // الحصول على قائمة الـ Payload Types (pt) التي يدعمها الخادم
+          var payloadTypes = media['payloads']?.split(' ') ?? [];
 
-        if (!hasRtcpFb) {
-          if (media['payloads'] != null) {
-            var payloadTypes = media['payloads'].split(' ');
-            for (var pt in payloadTypes) {
+          // 5. إضافة سمات RTCP-FB (التغذية الراجعة) لكل ترميز صوتي
+          bool addedRtcpFb = false;
+
+          for (var pt in payloadTypes) {
+            // نتأكد أننا لا نضيف السمات إذا كانت موجودة بالفعل لهذا الـ pt (لتجنب التكرار)
+            var ptHasRtcpFb = media['attributes'].any((attr) => attr['key'] == 'rtcp-fb' && attr['value'].startsWith('$pt '));
+
+            if (!ptHasRtcpFb) {
+              // إضافة سمات RTCP-FB الأكثر شيوعاً والمطلوبة لـ WebRTC (مثل NACK و transport-cc)
               media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt nack'});
               media['attributes'].add({'key': 'rtcp-fb', 'value': '$pt transport-cc'});
+              addedRtcpFb = true;
             }
           }
+
+          if (addedRtcpFb) {
+            logger.d('Added RTCP-FB attributes to audio section for WebRTC compatibility.');
+          }
+
+          // 6. إضافة سطر RTCP-Mux (مطلوب غالباً)
+          var hasRtcpMux = media['attributes'].any((attr) => attr['key'] == 'rtcp-mux');
+          if (!hasRtcpMux) {
+            media['attributes'].add({'key': 'rtcp-mux', 'value': null});
+            logger.d('Added rtcp-mux attribute to audio section.');
+          }
         }
+
+        // 7. يمكنك إضافة منطق تصحيح قسم الفيديو هنا إذا كنت تستخدم الفيديو
+        // if (media['type'] == 'video') { ... }
       }
 
+      // 8. إعادة بناء الـ SDP المعدل (باستخدام {} لتجنب خطأ 2 positional arguments)
       return sdp_transform.write(session, {});
     } catch (e) {
-      logger.e('Failed to fix 3CX SDP: $e');
-
+      logger.e('Failed to apply WebRTC SDP compatibility fixes: $e');
+      // إرجاع الـ SDP الأصلي في حالة الفشل
       return sdp;
     }
   }
